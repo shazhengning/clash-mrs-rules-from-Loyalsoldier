@@ -1,0 +1,68 @@
+name: Auto Build MRS Rules
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 每天 UTC 时间 02:00（北京时间早上 10:00）自动执行
+  workflow_dispatch:      # 允许你在网页端手动点击运行
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 拉取当前仓库
+        uses: actions/checkout@v3
+
+      - name: 2. 下载 Mihomo 核心
+        run: |
+          # 下载最新的 mihomo linux amd64 核心
+          wget -O mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.18.5/mihomo-linux-amd64-v1.18.5.gz
+          gunzip mihomo.gz
+          chmod +x mihomo
+
+      - name: 3. 下载 Loyalsoldier 规则并转换为 MRS
+        run: |
+          mkdir -p publish
+          
+          # 定义需要转换的规则列表： "文件名|类型"
+          RULES=(
+            "reject|domain"
+            "icloud|domain"
+            "apple|domain"
+            "google|domain"
+            "proxy|domain"
+            "direct|domain"
+            "private|domain"
+            "gfw|domain"
+            "tld-not-cn|domain"
+            "telegramcidr|ipcidr"
+            "cncidr|ipcidr"
+            "lancidr|ipcidr"
+            # "applications|classical" 根据Mihomo官方文档，mrs目前 behavior 仅支持 domain/ipcidr 
+          )
+          
+          for item in "${RULES[@]}"; do
+            NAME="${item%%|*}"
+            TYPE="${item##*|}"
+            echo "正在转换: $NAME.txt (类型: $TYPE)..."
+            
+            # 从 Loyalsoldier 拉取最新纯文本 payload
+            wget -qO $NAME.txt https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/$NAME.txt
+            
+            # 使用 mihomo 核心执行转换
+            ./mihomo convert-ruleset $TYPE yaml $NAME.txt publish/$NAME.mrs
+          done
+
+      - name: 4. 推送到 mrs-release 分支
+        run: |
+          cd publish
+          git init
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b mrs-release
+          
+          # 强制提交新生成的 mrs 文件
+          git add .
+          git commit -m "Auto update MRS rules $(date +'%Y-%m-%d %H:%M')"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          
+          # 强制覆盖远程的 mrs-release 分支
+          git push -f origin mrs-release
