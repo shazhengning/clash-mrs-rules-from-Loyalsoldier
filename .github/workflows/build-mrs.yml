@@ -21,7 +21,10 @@ jobs:
       - name: 3. 下载 Loyalsoldier 规则并转换为 MRS
         run: |
           mkdir -p publish
-          
+          export NO_PROXY=*
+          export http_proxy=
+          export https_proxy=
+          export ALL_PROXY=
           # 定义需要转换的规则列表： "文件名|类型"
           RULES=(
             "reject|domain"
