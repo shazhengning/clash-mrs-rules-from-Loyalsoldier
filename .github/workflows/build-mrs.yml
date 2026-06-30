@@ -5,29 +5,26 @@ on:
     - cron: "0 2 * * *"   # 每天 UTC 时间 02:00（北京时间早上 10:00）自动执行
   workflow_dispatch:      # 允许你在网页端手动点击运行
 
+# 关键修复：显式赋予 actions 机器人推送到仓库的写入权限
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: 1. 拉取当前仓库
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # 升级到 v4，消除 Node 版本弃用警告
 
       - name: 2. 获取并下载最新版 Mihomo 核心
         run: |
-          # 通过 GitHub API 动态获取 latest release 的版本号 (例如 v1.18.5)
           VERSION=$(curl -sL "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" | jq -r .tag_name)
           echo "最新 Mihomo 版本号为: $VERSION"
-          
-          # 拼接对应版本号的 Linux amd64 下载链接
           DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${VERSION}/mihomo-linux-amd64-${VERSION}.gz"
           echo "下载链接: $DOWNLOAD_URL"
-          
-          # 下载并解压
           wget -O mihomo.gz "$DOWNLOAD_URL"
           gunzip mihomo.gz
           chmod +x mihomo
-          
-          # 打印版本信息，确认核心下载并运行成功
           ./mihomo -v
 
       - name: 3. 下载 Loyalsoldier 规则并转换为 MRS
@@ -38,7 +35,6 @@ jobs:
           export https_proxy=
           export ALL_PROXY=
           
-          # 定义需要转换的规则列表： "文件名|类型"
           RULES=(
             "reject|domain"
             "icloud|domain"
@@ -52,18 +48,13 @@ jobs:
             "telegramcidr|ipcidr"
             "cncidr|ipcidr"
             "lancidr|ipcidr"
-            # "applications|classical" 完美避坑：根据Mihomo官方文档，mrs目前仅支持 domain/ipcidr
           )
           
           for item in "${RULES[@]}"; do
             NAME="${item%%|*}"
             TYPE="${item##*|}"
             echo "正在转换: $NAME.txt (类型: $TYPE)..."
-            
-            # 从 Loyalsoldier 拉取最新纯文本 payload
             wget -qO $NAME.txt https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/$NAME.txt
-            
-            # 使用 mihomo 核心执行转换 (读取源格式为 yaml)
             ./mihomo convert-ruleset $TYPE yaml $NAME.txt publish/$NAME.mrs
           done
 
@@ -75,10 +66,8 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b mrs-release
           
-          # 强制提交新生成的 mrs 文件
           git add .
           git commit -m "Auto update MRS rules $(date +'%Y-%m-%d %H:%M')"
           git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           
-          # 强制覆盖远程的 mrs-release 分支
           git push -f origin mrs-release
